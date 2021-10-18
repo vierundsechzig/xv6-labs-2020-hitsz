@@ -127,6 +127,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->trace = 0;
+
   return p;
 }
 
@@ -274,6 +276,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->trace = p->trace;
 
   np->parent = p;
 
@@ -692,4 +695,38 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64
+proc_num(void)
+{
+  uint64 num;
+  int i;
+
+  num = 0;
+  push_off();
+  for (i=0; i<NPROC; ++i)
+  {
+    acquire(&proc[i].lock);
+    if (proc[i].state == UNUSED)
+      ++num;
+    release(&proc[i].lock);
+  }
+  pop_off();
+  return num;
+}
+
+uint64
+free_fd(void)
+{
+  struct proc* cur;
+  uint64 count;
+  int i;
+
+  count = 0;
+  cur = myproc();
+  for (i=0; i<NOFILE; ++i)
+    if (!cur->ofile[i])
+      ++count;
+  return count;
 }

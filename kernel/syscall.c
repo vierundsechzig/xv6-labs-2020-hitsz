@@ -104,6 +104,8 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,17 +129,97 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo]   sys_sysinfo,
 };
 
 void
 syscall(void)
 {
   int num;
+  uint64 ret;
+  int arg_first;
   struct proc *p = myproc();
 
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    p->trapframe->a0 = syscalls[num]();
+    argint(0, &arg_first);
+    ret = syscalls[num]();
+    p->trapframe->a0 = ret;
+    if (p->trace >> num & 1) {
+      acquire(&p->lock);
+      printf("%d: ", p->pid);
+      release(&p->lock);
+      switch (num) {
+        case SYS_fork:
+          printf("sys_fork(%d)", arg_first);
+          break;
+        case SYS_exit:
+          printf("sys_exit(%d)", arg_first);
+          break;
+        case SYS_wait:
+          printf("sys_wait(%d)", arg_first);
+          break;
+        case SYS_pipe:
+          printf("sys_pipe(%d)", arg_first);
+          break;
+        case SYS_read:
+          printf("sys_read(%d)", arg_first);
+          break;
+        case SYS_kill:
+          printf("sys_kill(%d)", arg_first);
+          break;
+        case SYS_exec:
+          printf("sys_exec(%d)", arg_first);
+          break;
+        case SYS_fstat:
+          printf("sys_fstat(%d)", arg_first);
+          break;
+        case SYS_chdir:
+          printf("sys_chdir(%d)", arg_first);
+          break;
+        case SYS_dup:
+          printf("sys_dup(%d)", arg_first);
+          break;
+        case SYS_getpid:
+          printf("sys_getpid(%d)", arg_first);
+          break;
+        case SYS_sbrk:
+          printf("sys_sbrk(%d)", arg_first);
+          break;
+        case SYS_sleep:
+          printf("sys_sleep(%d)", arg_first);
+          break;
+        case SYS_uptime:
+          printf("sys_uptime(%d)", arg_first);
+          break;
+        case SYS_open:
+          printf("sys_open(%d)", arg_first);
+          break;
+        case SYS_write:
+          printf("sys_write(%d)", arg_first);
+          break;
+        case SYS_mknod:
+          printf("sys_mknod(%d)", arg_first);
+          break;
+        case SYS_unlink:
+          printf("sys_unlink(%d)", arg_first);
+          break;
+        case SYS_link:
+          printf("sys_link(%d)", arg_first);
+          break;
+        case SYS_mkdir:
+          printf("sys_mkdir(%d)", arg_first);
+          break;
+        case SYS_close:
+          printf("sys_close(%d)", arg_first);
+          break;
+        case SYS_trace:
+          printf("sys_trace(%d)", arg_first);
+          break;
+      }
+      printf(" -> %d\n", ret);
+    }
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
