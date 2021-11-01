@@ -19,7 +19,11 @@ extern void forkret(void);
 static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
+extern char etext[];  // kernel.ld sets this to end of kernel code.
+
 extern char trampoline[]; // trampoline.S
+
+extern pagetable_t kernel_pagetable; // vm.c
 
 // initialize the proc table at boot time.
 void
@@ -34,12 +38,12 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
   kvminithart();
 }
@@ -106,12 +110,14 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  printf("haha1\n");
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
   }
+  printf("haha2\n");
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
@@ -120,6 +126,22 @@ found:
     release(&p->lock);
     return 0;
   }
+  printf("haha3\n");
+
+  // Allocate a kernel page table
+  prockpgtblinit(p);
+  printf("haha4\n");
+
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  if (mappages(p->kernel_pgtbl, va, PGSIZE, (uint64)pa, PTE_R | PTE_W) != 0)
+    panic("prockpgtblinit");
+  p->kstack = va;
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -141,6 +163,8 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if(p->kernel_pgtbl)
+    proc_freekpgtbl(p->pagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -193,6 +217,24 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
   uvmfree(pagetable, sz);
+}
+
+// Free a process's kernel page table.
+// By no means free the physical memory it refers to!
+void
+proc_freekpgtbl(pagetable_t kpgtbl)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = kpgtbl[i];
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      proc_freekpgtbl((pagetable_t)child);
+      kpgtbl[i] = 0;  
+    }
+  }
+  kfree((void*)kpgtbl);
 }
 
 // a user program that calls exec("/init")
@@ -473,11 +515,15 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kernel_pgtbl));
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0; // cpu dosen't run any process now
+        w_satp(MAKE_SATP(kernel_pagetable));
+        sfence_vma();
 
         found = 1;
       }
@@ -696,4 +742,40 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// produce a kernel page table for each process
+void
+prockpgtblinit(struct proc* cur_proc)
+{
+  if ((cur_proc->kernel_pgtbl = (pagetable_t) kalloc()) == 0)
+    panic("kalloc");
+  memset(cur_proc->kernel_pgtbl, 0, PGSIZE);
+
+  // uart registers
+  // printf("UART0\n");
+  if (mappages(cur_proc->kernel_pgtbl, UART0, PGSIZE, UART0, PTE_R | PTE_W) != 0)
+    panic("prockpgtblinit");
+
+  // virtio mmio disk interface
+  // printf("VIRTIO0\n");
+  if (mappages(cur_proc->kernel_pgtbl, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) != 0)
+    panic("prockpgtblinit");
+
+  // PLIC
+  if (mappages(cur_proc->kernel_pgtbl, PLIC, 0x400000, PLIC, PTE_R | PTE_W) != 0)
+    panic("prockpgtblinit");
+
+  // map kernel text executable and read-only.
+  if (mappages(cur_proc->kernel_pgtbl, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) != 0)
+    panic("prockpgtblinit");
+
+  // map kernel data and the physical RAM we'll make use of.
+  if (mappages(cur_proc->kernel_pgtbl, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) != 0)
+    panic("prockpgtblinit");
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  if (mappages(cur_proc->kernel_pgtbl, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) != 0)
+    panic("prockpgtblinit");
 }

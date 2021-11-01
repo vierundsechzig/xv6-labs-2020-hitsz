@@ -25,9 +25,11 @@ kvminit()
   memset(kernel_pagetable, 0, PGSIZE);
 
   // uart registers
+  // printf("UART0\n");
   kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
 
   // virtio mmio disk interface
+  // printf("VIRTIO0\n");
   kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
   // CLINT
@@ -153,9 +155,11 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
+  printf("in va: %p\n", va);
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
+    // printf("va: %p\n", a);
     if(*pte & PTE_V)
       panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
@@ -449,4 +453,38 @@ test_pagetable()
   uint64 satp = r_satp();
   uint64 gsatp = MAKE_SATP(kernel_pagetable);
   return satp != gsatp;
+}
+
+void
+vmprint(pagetable_t pgtbl)
+{
+  char* fmt_str = "|| || ||%d: pte %p pa %p\n";
+  int i, j, k;
+  pte_t pte;
+  uint64 pa, pa2;
+  printf("page table %p\n", pgtbl);
+  for (i=0; i<512; ++i)
+  {
+    pte = pgtbl[i];
+    if (pte & PTE_V)
+    {
+      pa = PTE2PA(pte);
+      printf(fmt_str + 6, i, pte, pa);
+      for (j=0; j<512; ++j)
+      {
+        pte = ((pagetable_t) pa)[j];
+        if (pte & PTE_V)
+        {
+          pa2 = PTE2PA(pte);
+          printf(fmt_str + 3, j, pte, pa2);
+          for (k=0; k<512; ++k)
+          {
+            pte = ((pagetable_t) pa2)[k];
+            if (pte & PTE_V)
+              printf(fmt_str, k, pte, PTE2PA(pte));
+          }
+        }
+      }
+    }
+  }
 }
