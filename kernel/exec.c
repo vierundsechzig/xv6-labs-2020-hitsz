@@ -96,7 +96,6 @@ exec(char *path, char **argv)
     goto bad;
   if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
     goto bad;
-
   // arguments to user main(argc, argv)
   // argc is returned via the system call return
   // value, which goes in a0.

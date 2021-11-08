@@ -155,11 +155,9 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
-  printf("in va: %p\n", va);
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    // printf("va: %p\n", a);
     if(*pte & PTE_V)
       panic("remap");
     *pte = PA2PTE(pa) | perm | PTE_V;
@@ -265,7 +263,6 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
   if(newsz >= oldsz)
     return oldsz;
-
   if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
     uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
@@ -384,6 +381,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  // return copyin_new(pagetable, dst, srcva, len);
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -410,6 +408,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  // return copyinstr_new(pagetable, dst, srcva, max);
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -459,9 +458,12 @@ void
 vmprint(pagetable_t pgtbl)
 {
   char* fmt_str = "|| || ||%d: pte %p pa %p\n";
-  int i, j, k;
+  int i;
+  int j;
+  int k;
   pte_t pte;
-  uint64 pa, pa2;
+  uint64 pa;
+  uint64 pa2;
   printf("page table %p\n", pgtbl);
   for (i=0; i<512; ++i)
   {
